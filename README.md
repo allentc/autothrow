@@ -9,6 +9,46 @@ Install x264
 
 Much of this taken from: http://www.ozbotz.org/opencv-installation/
 
+Dependencies (Debian, Ubuntu, Mint etc.)  Correct for Ubuntu 13.04 Raring
+(aka Mint 15 Olivia)
+
+    - build-essential
+    - checkinstall
+    - cmake
+    - git
+    - gstreamer0.10-ffmpeg
+    - gstreamer0.10-plugins-bad
+    - gstreamer0.10-plugins-base
+    - gstreamer0.10-plugins-good
+    - gstreamer0.10-plugins-ugly
+    - gstreamer0.10-tools
+    - libfaac-dev
+    - libgstreamer0.10-0
+    - libgstreamer0.10-dev
+    - libgstreamer-plugins-base0.10-dev
+    - libgtk2.0-0
+    - libgtk2.0-dev
+    - libjack-jackd2-dev
+    - libjpeg8
+    - libjpeg8-dev
+    - libmp3lame-dev
+    - libopencore-amrnb-dev
+    - libopencore-amrwb-dev
+    - libsdl1.2-dev
+    - libtheora-dev
+    - libva-dev
+    - libvdpau-dev
+    - libvorbis-dev
+    - libx11-dev
+    - libxfixes-dev
+    - libxvidcore-dev
+    - texi2html
+    - yasm
+    - zlib1g-dev
+
+Install x264
+
+    wget ftp://ftp.videolan.org/pub/x264/snapshots/last_x264.tar.bz2
     x264home=$HOME/apps/x264-snapshot-20131207-2245
     ./configure --enable-shared --enable-pic --prefix=${x264home}
     make && make install
