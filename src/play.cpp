@@ -7,8 +7,9 @@
 
 using namespace cv;
 
-const char* videoFile = "../data/balance.m4v";
-const char* windowName = "mainwindow";
+const char* VIDEO_FILE = "../data/balance.m4v";
+const char* WINDOW_NAME = "mainwindow";
+const Point SELECT_RECT_SIZE(125, 125); /*radius*/
 
 static void onMouse(int, int, int, int, void*);
 
@@ -16,22 +17,30 @@ int main(int argc, const char** argv)
 {
     VideoCapture vc;
 
-    if (!vc.open(videoFile)) {
-        CV_Error_(-1, ("failed to open video: \"%s\"", videoFile));
+    if (!vc.open(VIDEO_FILE)) {
+        CV_Error_(-1, ("failed to open video: \"%s\"", VIDEO_FILE));
         std::exit(1);
     }
 
     int key = 0;
-    bool close = false, pause = false;
+    bool pause = false;
+    Point p(-1000, -1000);
     Mat frame;
 
-    namedWindow(windowName, CV_WINDOW_NORMAL);
-    setMouseCallback(windowName, onMouse, 0);
+    namedWindow(WINDOW_NAME, CV_WINDOW_NORMAL);
+    setMouseCallback(WINDOW_NAME, onMouse, &p);
 
-    while (!close) {
+    while (true)
+    {
+        if ((unsigned long) cvGetWindowHandle(WINDOW_NAME) == 0UL) {
+            break;
+        }
+
         if (!pause) {
             vc >> frame;
-            imshow(windowName, frame);
+
+            rectangle(frame, p - SELECT_RECT_SIZE, p + SELECT_RECT_SIZE, Scalar(0,255,0), 5);
+            imshow(WINDOW_NAME, frame);
         }
 
         key = waitKey(5);
@@ -59,6 +68,7 @@ void onMouse(int e, int x, int y, int flags, void* param)
         return;
     }
 
-    std::cerr << "e=" << e << " x=" << x << " y=" << y << " flags=" << flags
-            << std::endl;
+    Point& p = *(Point*)param;
+    p.x = x;
+    p.y = y;
 }
