@@ -1,4 +1,4 @@
-/* vim: set ts=8 sw=8 : */
+/* vim: set ts=8 sw=8 et : */
 
 #include <cmath>
 #include <cstdint>
@@ -54,7 +54,8 @@ const vector<Point2i> KEY_ZERO_INSIDE_CONTOUR =
         {26, 23}, {30, 27}, {31, 32}
 };
 
-const double KEY_ZERO_ASPECT_RATIO = 1.6;
+const double KEY_ZERO_OUTSIDE_ASPECT_RATIO = 1.6;
+const double KEY_ZERO_INSIDE_ASPECT_RATIO  = 2.55;
 
 enum model_state { UNRESOLVED = 0, VALID = 1 };
 
@@ -83,6 +84,58 @@ typedef struct {
                 unsigned skip;
         } key_zero;
 } model_t;
+
+/**
+ * Find the acute angle of the major axes of two RotatedRects
+ */
+static float rotatedRects_major_axis_delta(const RotatedRect& r1, const RotatedRect& r2)
+{
+        Point2f verts[4];
+        Point2f axis1, axis2;
+        vector<float> x, y, mag, ng;
+        float ng1, ng2;
+
+        r1.points(verts);
+        axis1 = verts[1] - verts[0];
+        axis2 = verts[3] - verts[0];
+        x = { axis1.x, axis2.x };
+        y = { axis1.y, axis2.y };
+        cartToPolar(x, y, mag, ng);
+        ng1 = ng[mag[0] > mag[1] ? 0 : 1] - M_PI;
+
+        r2.points(verts);
+        axis1 = verts[1] - verts[0];
+        axis2 = verts[3] - verts[0];
+        x = { axis1.x, axis2.x };
+        y = { axis1.y, axis2.y };
+        cartToPolar(x, y, mag, ng);
+        ng2 = ng[mag[0] > mag[1] ? 0 : 1] - M_PI;
+ 
+        return abs(atan2(sin(ng1 - ng2), cos(ng1 - ng2)));
+}
+
+/**
+ * Return the aspect ratio of a RotatedRect, where the major axis is the
+ * height, regardless of orientation.
+ */
+static float rotatedRect_aspect_ratio(const RotatedRect& r)
+{
+        Point2f verts[4];
+        Point2f axis1, axis2;
+        vector<float> x, y, mag;
+
+        r.points(verts);
+        axis1 = verts[1] - verts[0];
+        axis2 = verts[3] - verts[0];
+        x = { axis1.x, axis2.x };
+        y = { axis1.y, axis2.y };
+        magnitude(x, y, mag);
+
+        float height = max(mag[0], mag[1]);
+        float width  = min(mag[0], mag[1]);
+ 
+        return height / width;
+}
 
 static void get_selection_contours(model_t& model, Mat& scene)
 {
@@ -210,8 +263,10 @@ static void find_key_zero(model_t& model, Mat& scene)
         static vector<Point> hull;
 
         Rect roi;
+        double match_ratio, aspect_ratio;
+        RotatedRect bounds;
 
-        if (model.key_zero.state == VALID) {
+        if (model.key_zero.state == VALID && false) {
                 if (++model.key_zero.skip < 5)
                         return;
 
@@ -238,24 +293,50 @@ static void find_key_zero(model_t& model, Mat& scene)
         findContours(binary, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
 
         for (unsigned i = 0; i < contours.size(); i++) {
-                if (hierarchy[i][3] != -1) // must be a parent contour
+
+                // Consider only outside contours
+                //
+                if (hierarchy[i][3] >= 0)
                         continue;
 
-                double ratio = matchShapes(KEY_ZERO_OUTSIDE_CONTOUR,
+                // Only contours that match the key zero outside contour
+                //
+                match_ratio = matchShapes(KEY_ZERO_OUTSIDE_CONTOUR,
                                 contours[i], CV_CONTOURS_MATCH_I3, 0);
 
-                if (ratio > 0.10) // poor match
+                if (match_ratio > 0.10) // poor match
                         continue;
 
-                const RotatedRect bounds = minAreaRect(contours[i]);
-                double aspect_ratio = bounds.size.height / (double) bounds.size.width; 
+                // The contour must have the correct aspect ratio
+                //
+                bounds = minAreaRect(contours[i]);
+                aspect_ratio = rotatedRect_aspect_ratio(bounds);
 
-                if (fabs(aspect_ratio - KEY_ZERO_ASPECT_RATIO) > 0.1)
+                if (aspect_ratio - KEY_ZERO_OUTSIDE_ASPECT_RATIO > 0.1)
                         continue;
 
-                // test whether the current contour has a child contour
-                // test the aspect_ratio of the child contour
-                // test the ratio of the parent and child contours areas using convexHull
+                // The contour must have an inside contour
+                //
+                if (hierarchy[i][2] < 0)
+                        continue;
+
+                // The inside contour must match the expected key zero inside contour
+                //
+                match_ratio = matchShapes(KEY_ZERO_INSIDE_CONTOUR,
+                                contours[hierarchy[i][2]], CV_CONTOURS_MATCH_I3, 0);
+
+                if (match_ratio > 0.10)
+                        continue;
+
+                // The inside contour must have the correct aspect ratio
+                //
+                bounds = minAreaRect(contours[hierarchy[i][2]]);
+                aspect_ratio = rotatedRect_aspect_ratio(bounds);
+
+                if (aspect_ratio - KEY_ZERO_INSIDE_ASPECT_RATIO > 0.1)
+                        continue;
+
+                // test the ratio of the outside and inside contours areas using convexHull
                 // test that the orientation of the major axis of the contours is the same
                 // test that the centers of the contours is the same
 

@@ -7,7 +7,7 @@ opencvpc = $(opencv)/lib/pkgconfig/opencv.pc
 CXXFLAGS = -Wall -g -std=c++11 $(shell pkg-config --cflags $(opencvpc)) -Wl,-rpath=$(opencv)/lib
 LDLIBS = $(shell pkg-config --libs $(opencvpc))
 
-progs = homograph canny play findContours_demo edges
+progs = homograph canny play findContours_demo edges rotatedrect
 
 all: $(progs)
 
