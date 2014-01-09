@@ -56,6 +56,7 @@ const vector<Point2i> KEY_ZERO_INSIDE_CONTOUR =
 
 const double KEY_ZERO_OUTSIDE_ASPECT_RATIO = 1.6;
 const double KEY_ZERO_INSIDE_ASPECT_RATIO  = 2.55;
+const double KEY_ZERO_CONTOURS_AREA_RATIO  = 2;
 
 enum model_state { UNRESOLVED = 0, VALID = 1 };
 
@@ -88,7 +89,7 @@ typedef struct {
 /**
  * Find the acute angle of the major axes of two RotatedRects
  */
-static float rotatedRects_major_axis_delta(const RotatedRect& r1, const RotatedRect& r2)
+static float rr_major_axis_delta(const RotatedRect& r1, const RotatedRect& r2)
 {
         Point2f verts[4];
         Point2f axis1, axis2;
@@ -118,7 +119,7 @@ static float rotatedRects_major_axis_delta(const RotatedRect& r1, const RotatedR
  * Return the aspect ratio of a RotatedRect, where the major axis is the
  * height, regardless of orientation.
  */
-static float rotatedRect_aspect_ratio(const RotatedRect& r)
+static float rr_aspect_ratio(const RotatedRect& r)
 {
         Point2f verts[4];
         Point2f axis1, axis2;
@@ -264,7 +265,7 @@ static void find_key_zero(model_t& model, Mat& scene)
 
         Rect roi;
         double match_ratio, aspect_ratio;
-        RotatedRect bounds;
+        RotatedRect ouside_rr, inside_rr;
 
         if (model.key_zero.state == VALID && false) {
                 if (++model.key_zero.skip < 5)
@@ -299,7 +300,7 @@ static void find_key_zero(model_t& model, Mat& scene)
                 if (hierarchy[i][3] >= 0)
                         continue;
 
-                // Only contours that match the key zero outside contour
+                // The contour must match the expected key zero outside contour
                 //
                 match_ratio = matchShapes(KEY_ZERO_OUTSIDE_CONTOUR,
                                 contours[i], CV_CONTOURS_MATCH_I3, 0);
@@ -309,8 +310,8 @@ static void find_key_zero(model_t& model, Mat& scene)
 
                 // The contour must have the correct aspect ratio
                 //
-                bounds = minAreaRect(contours[i]);
-                aspect_ratio = rotatedRect_aspect_ratio(bounds);
+                outside_rr = minAreaRect(contours[i]);
+                aspect_ratio = rr_aspect_ratio(outside_rr);
 
                 if (aspect_ratio - KEY_ZERO_OUTSIDE_ASPECT_RATIO > 0.1)
                         continue;
@@ -320,39 +321,50 @@ static void find_key_zero(model_t& model, Mat& scene)
                 if (hierarchy[i][2] < 0)
                         continue;
 
+                vector<Point>& inside_contour;
+
                 // The inside contour must match the expected key zero inside contour
                 //
                 match_ratio = matchShapes(KEY_ZERO_INSIDE_CONTOUR,
-                                contours[hierarchy[i][2]], CV_CONTOURS_MATCH_I3, 0);
+                                inside_contour, CV_CONTOURS_MATCH_I3, 0);
 
                 if (match_ratio > 0.10)
                         continue;
 
                 // The inside contour must have the correct aspect ratio
                 //
-                bounds = minAreaRect(contours[hierarchy[i][2]]);
-                aspect_ratio = rotatedRect_aspect_ratio(bounds);
+                inside_rr = minAreaRect(inside_contour);
+                aspect_ratio = rr_aspect_ratio(inside_rr);
 
                 if (aspect_ratio - KEY_ZERO_INSIDE_ASPECT_RATIO > 0.1)
                         continue;
 
-                // test the ratio of the outside and inside contours areas using convexHull
-                // test that the orientation of the major axis of the contours is the same
-                // test that the centers of the contours is the same
-
-                /*
+                // The areas of the inside and outside contours must have the correct ratio
+                //
                 convexHull(contours[i], hull);
+                double outside_area = contourArea(hull);
+                convexHull(inside_contour, hull);
+                double inside_area = contourArea(hull);
 
-                if (fabs(contourArea(hull) - model.selection.outside.area) >
-                                model.selection.outside.area * 0.1)
+                if (outside_area / inside_area - KEY_ZERO_CONTOURS_AREA_RATIO > 0.1)
                         continue;
-                */
+
+                // Orientation of the major axis of the contours must match
+                //
+                if (rr_major_axis_delta(outside_rr, inside_rr) > 0.1)
+                        continue;
+
+                // The inside and outside contours must be concentric
+                //
+                dcenter = outside_rr - inside_rr;
+                
+                if (sqrt(pow(dcenter.x, 2) + pow(dcenter.y, 2)) > outside_rr.size.height * 0.1)
+                        continue;
 
                 if (contours[i].size() < 5)
                         continue;
 
-                RotatedRect rect = fitEllipse(contours[i]);
-                model.key_zero.pt = rect.center;
+                model.key_zero.pt = outside_rr.center;
                 model.key_zero.pt.x += roi.x;
                 model.key_zero.pt.y += roi.y;
                 model.key_zero.size = rect.boundingRect().size();
