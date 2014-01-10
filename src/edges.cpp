@@ -56,7 +56,7 @@ const vector<Point2i> KEY_ZERO_INSIDE_CONTOUR =
 
 const double KEY_ZERO_OUTSIDE_ASPECT_RATIO = 1.6;
 const double KEY_ZERO_INSIDE_ASPECT_RATIO  = 2.55;
-const double KEY_ZERO_CONTOURS_AREA_RATIO  = 2;
+const double KEY_ZERO_CONTOURS_AREA_RATIO  = 3.385;
 
 enum model_state { UNRESOLVED = 0, VALID = 1 };
 
@@ -80,10 +80,14 @@ typedef struct {
 
         struct key_zero_t {
                 model_state state;        
-                Point pt;
+                Point2f pt;
                 Size size;
                 unsigned skip;
         } key_zero;
+
+        struct zero_tick_t {
+                model_state state;        
+        } zero_tick;
 } model_t;
 
 /**
@@ -265,9 +269,9 @@ static void find_key_zero(model_t& model, Mat& scene)
 
         Rect roi;
         double match_ratio, aspect_ratio;
-        RotatedRect ouside_rr, inside_rr;
+        RotatedRect outside_rr, inside_rr;
 
-        if (model.key_zero.state == VALID && false) {
+        if (model.key_zero.state == VALID) {
                 if (++model.key_zero.skip < 5)
                         return;
 
@@ -292,6 +296,12 @@ static void find_key_zero(model_t& model, Mat& scene)
         cvtColor(blur2, gray, CV_BGR2GRAY);
         threshold(gray, binary, 100, 255, THRESH_BINARY_INV);
         findContours(binary, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
+
+#define _continue \
+{ \
+        cout << __LINE__ << endl; \
+        continue; \
+}
 
         for (unsigned i = 0; i < contours.size(); i++) {
 
@@ -321,7 +331,7 @@ static void find_key_zero(model_t& model, Mat& scene)
                 if (hierarchy[i][2] < 0)
                         continue;
 
-                vector<Point>& inside_contour;
+                vector<Point>& inside_contour = contours[hierarchy[i][2]];
 
                 // The inside contour must match the expected key zero inside contour
                 //
@@ -329,15 +339,15 @@ static void find_key_zero(model_t& model, Mat& scene)
                                 inside_contour, CV_CONTOURS_MATCH_I3, 0);
 
                 if (match_ratio > 0.10)
-                        continue;
+                        _continue;
 
                 // The inside contour must have the correct aspect ratio
                 //
                 inside_rr = minAreaRect(inside_contour);
                 aspect_ratio = rr_aspect_ratio(inside_rr);
 
-                if (aspect_ratio - KEY_ZERO_INSIDE_ASPECT_RATIO > 0.1)
-                        continue;
+                if (aspect_ratio - KEY_ZERO_INSIDE_ASPECT_RATIO > 0.10) // TODO: 0.20
+                        _continue;
 
                 // The areas of the inside and outside contours must have the correct ratio
                 //
@@ -346,32 +356,48 @@ static void find_key_zero(model_t& model, Mat& scene)
                 convexHull(inside_contour, hull);
                 double inside_area = contourArea(hull);
 
-                if (outside_area / inside_area - KEY_ZERO_CONTOURS_AREA_RATIO > 0.1)
-                        continue;
+                if (outside_area / inside_area - KEY_ZERO_CONTOURS_AREA_RATIO > 0.10)  // TODO: 0.15
+                        _continue;
 
                 // Orientation of the major axis of the contours must match
                 //
                 if (rr_major_axis_delta(outside_rr, inside_rr) > 0.1)
-                        continue;
+                        _continue;
 
                 // The inside and outside contours must be concentric
                 //
-                dcenter = outside_rr - inside_rr;
+                Point2f dcenter = outside_rr.center - inside_rr.center;
                 
                 if (sqrt(pow(dcenter.x, 2) + pow(dcenter.y, 2)) > outside_rr.size.height * 0.1)
-                        continue;
+                        _continue;
 
                 if (contours[i].size() < 5)
-                        continue;
+                        _continue;
 
                 model.key_zero.pt = outside_rr.center;
                 model.key_zero.pt.x += roi.x;
                 model.key_zero.pt.y += roi.y;
-                model.key_zero.size = rect.boundingRect().size();
+                model.key_zero.size = outside_rr.boundingRect().size();
                 model.key_zero.state = VALID;
 
                 return;
         }
+}
+
+static void find_zero_tick(model_t& model, Mat& scene)
+{
+        if (model.key_zero.state != VALID)
+                return;
+
+        Point p1 = model.key_zero.pt;
+        p1.x += model.key_zero.size.width * 1.1;
+        p1.y -= model.key_zero.size.height * 0.20;
+
+        Point p2 = model.key_zero.pt;
+        p2.x += model.key_zero.size.width * 3.05;
+        p2.y += model.key_zero.size.height * 0.20;
+
+        rectangle(scene, Rect(p1, p2), SELECT_COLOR, SELECT_LINE_WIDTH);
 }
 
 static void handle_mouse_event(int e, int x, int y, int flags, void* param)
@@ -425,6 +451,9 @@ static void draw_selection(model_t& model, Mat& scene)
 
 static void draw_match(model_t& model, Mat& scene)
 {
+        if (model.key_zero.state != VALID)
+                return;
+
         Point p1, p2;
 
         p1 = p2 = model.key_zero.pt;
@@ -541,6 +570,7 @@ int main(int argc, const char** argv)
 //                get_selection_contours(model, scene);
 //                find_selection(model, scene);
                 find_key_zero(model, scene);
+                find_zero_tick(model, scene);
 
                 draw_pip(model, scene);
                 draw_selection(model, scene);
