@@ -397,7 +397,32 @@ static void find_zero_tick(model_t& model, Mat& scene)
         p2.x += model.key_zero.size.width * 3.05;
         p2.y += model.key_zero.size.height * 0.20;
 
-        rectangle(scene, Rect(p1, p2), SELECT_COLOR, SELECT_LINE_WIDTH);
+        //rectangle(scene, Rect(p1, p2), SELECT_COLOR, SELECT_LINE_WIDTH);
+}
+
+// How to find the two most dominant colors in an image
+// http://answers.opencv.org/question/5067/how-to-find-the-two-most-dominant-colors-in-an/
+// http://docs.opencv.org/modules/core/doc/clustering.html
+
+static void find_zero_plate_right_edge(model_t& model, Mat& scene)
+{
+        static Mat hsv;
+
+        if (model.key_zero.state != VALID)
+                return;
+
+        Point p1 = model.key_zero.pt;
+        p1.x += model.key_zero.size.width * 1.1;
+        p1.y -= model.key_zero.size.height * 1.50;
+
+        Point p2 = model.key_zero.pt;
+        p2.x += model.key_zero.size.width * 3.2;
+        p2.y += model.key_zero.size.height * 1.50;
+
+        Rect rect = Rect(p1, p2);
+        cvtColor(scene(rect), hsv, CV_BGR2HSV); 
+
+        rectangle(scene, rect, SELECT_COLOR, SELECT_LINE_WIDTH);
 }
 
 static void handle_mouse_event(int e, int x, int y, int flags, void* param)
@@ -571,6 +596,7 @@ int main(int argc, const char** argv)
 //                find_selection(model, scene);
                 find_key_zero(model, scene);
                 find_zero_tick(model, scene);
+                find_zero_plate_right_edge(model, scene);
 
                 draw_pip(model, scene);
                 draw_selection(model, scene);
