@@ -9,7 +9,7 @@ SHELL = /bin/bash
 CXXFLAGS = -Wall -g -std=c++11 $(shell pkg-config --cflags opencv)
 LDLIBS = $(shell pkg-config --libs opencv)
 
-progs = homograph canny play findContours_demo edges rotatedrect thinning
+progs = homograph canny play findContours_demo edges rotatedrect thinning black
 
 all: $(progs)
 
