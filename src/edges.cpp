@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <queue>
+#include <string>
 #include <vector>
 
 #include "opencv2/core/core.hpp"
@@ -84,6 +85,11 @@ typedef struct {
                 Size size;
                 unsigned skip;
         } key_zero;
+
+        struct zero_plate_t {
+                model_state state;        
+                Mat histogram;
+        } zero_plate;
 
         struct zero_tick_t {
                 model_state state;        
@@ -407,22 +413,71 @@ static void find_zero_tick(model_t& model, Mat& scene)
 static void find_zero_plate_right_edge(model_t& model, Mat& scene)
 {
         static Mat hsv;
+        Mat& hist = model.zero_plate.histogram;
+        Point p1, p2;
+
+        model.zero_plate.state = UNRESOLVED;
 
         if (model.key_zero.state != VALID)
                 return;
 
-        Point p1 = model.key_zero.pt;
-        p1.x += model.key_zero.size.width * 1.1;
-        p1.y -= model.key_zero.size.height * 1.50;
+        const int channels[] = { 0, 1 }; // hue and saturation channels
+        const int hbins = 30, sbins = 32;
+        const int histSize[] = { hbins, sbins };
+        const float hranges[] = { 0, 180 };
+        const float sranges[] = { 0, 256 };
+        const float* ranges[] = { hranges, sranges };
 
-        Point p2 = model.key_zero.pt;
-        p2.x += model.key_zero.size.width * 3.2;
-        p2.y += model.key_zero.size.height * 1.50;
+        p1 = p2 = model.key_zero.pt;
+        p1.x += model.key_zero.size.width * 0.8;
+        p1.y -= model.key_zero.size.height * 1.1;
+        p2.x += model.key_zero.size.width * 2.0;
+        p2.y -= model.key_zero.size.height * 0.3;
 
-        Rect rect = Rect(p1, p2);
-        cvtColor(scene(rect), hsv, CV_BGR2HSV); 
+        cvtColor(scene(Rect(p1, p2)), hsv, CV_BGR2HSV); 
 
-        rectangle(scene, rect, SELECT_COLOR, SELECT_LINE_WIDTH);
+        calcHist(&hsv,         // images (Mat*)
+                 1,            // no. images
+                 channels,     // channels of images (int*)
+                 Mat(),        // mask
+                 hist,         // histogram output
+                 2,            // histogram dims
+                 histSize,     // dimension sizes (int*)
+                 ranges,       // dimension ranges (ranges[dims][2])
+                 true,         // uniform
+                 false);       // accumulate
+
+        p1 = p2 = model.key_zero.pt;
+        p1.x += model.key_zero.size.width * 0.8;
+        p2.y += model.key_zero.size.height * 0.3;
+        p2.x += model.key_zero.size.width * 2.0;
+        p1.y += model.key_zero.size.height * 1.1;
+
+        cvtColor(scene(Rect(p1, p2)), hsv, CV_BGR2HSV); 
+
+        calcHist(&hsv,         // images (Mat*)
+                 1,            // no. images
+                 channels,     // channels of images (int*)
+                 Mat(),        // mask
+                 hist,         // histogram output
+                 2,            // histogram dims
+                 histSize,     // dimension sizes (int*)
+                 ranges,       // dimension ranges (ranges[dims][2])
+                 true,         // uniform
+                 true);        // accumulate
+
+        GaussianBlur(hist, hist, Size(3, 3), 0);
+
+        float max = trunc(*max_element(hist.begin<float>(), hist.end<float>()));
+
+        for (int y = 0; y < hist.rows; y++) {
+                float* rp = hist.ptr<float>(y);
+                for (int x = 0; x < hist.cols; x++) {
+                        rp[x] = rp[x] < max * 0.05 ? 0 : trunc(rp[x]);
+                }
+        }
+
+        model.zero_plate.state = VALID;
 }
 
 static void handle_mouse_event(int e, int x, int y, int flags, void* param)
@@ -488,6 +543,97 @@ static void draw_match(model_t& model, Mat& scene)
         p1 = p2 = model.key_zero.pt;
         p1.x -= 7; p1.y += 7; p2.x += 7; p2.y -= 7;
         line(scene, p1, p2, RED, 3);
+}
+
+static string get_mat_type_name(const Mat& mat)
+{
+        int type = mat.type();
+
+        uchar depth = type & CV_MAT_DEPTH_MASK;
+        uchar chans = 1 + (type >> CV_CN_SHIFT);
+
+        string r;
+
+        switch (depth) {
+                case CV_8U:
+                        r = "8U";
+                        break;
+
+                case CV_8S:
+                        r = "8S";
+                        break;
+
+                case CV_16U:
+                        r = "16U";
+                        break;
+
+                case CV_16S:
+                        r = "16S";
+                        break;
+
+                case CV_32S:
+                        r = "32S";
+                        break;
+
+                case CV_32F:
+                        r = "32F";
+                        break;
+
+                case CV_64F:
+                        r = "64F";
+                        break;
+
+                default:
+                        r = "User";
+                        break;
+        }
+
+        r += "C";
+        r += (chans + '0');
+
+        return r;
+}
+
+static void draw_zero_plate_stuff(model_t& model, Mat& scene)
+{
+        if (model.zero_plate.state != VALID)
+                return;
+
+        Mat& hist = model.zero_plate.histogram;
+
+        float max = trunc(*max_element(hist.begin<float>(), hist.end<float>()));
+
+        cout << "\033[2J\033[0;0f" << "\033[0;0f";
+        cout << "------------------------------- " << max << endl;
+
+        int x, y;
+        char buf[128];
+
+        for (y = 0; y < hist.rows; y++) {
+                sprintf(buf, "[ %-3u ] ", y);
+                cout << buf;
+                float* rp = hist.ptr<float>(y);
+                for (x = 0; x < hist.cols; x++) {
+                        cout << rp[x] << ' ';
+                }
+                cout << endl;
+        }
+
+        ///////////////////////////////////////////////////////////////
+
+        static Mat mat;
+
+        Rect rect = Rect(450, 360, 90, 100);
+        scene(rect).copyTo(mat);
+        cvtColor(mat, mat, CV_BGR2HSV); 
+
+        uchar* p = mat.ptr<uchar>(0);
+
+        for (int i = 0; i < mat.cols * mat.rows * 3; i += 3) {
+                p[i + 2] = 255;
+        }
+
+        mat.copyTo(scene(Rect(100, 360, 90, 100)));
 }
 
 static void draw_metrics(Mat& scene, VideoCapture& vc)
@@ -602,6 +748,7 @@ int main(int argc, const char** argv)
                 draw_selection(model, scene);
                 draw_metrics(scene, vc);
                 draw_match(model, scene);
+                draw_zero_plate_stuff(model, scene);
 
                 compute_interval(model);
 
